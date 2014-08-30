@@ -1,0 +1,91 @@
+###############################################################################
+# Load Systematic Investor Toolbox (SIT)
+###############################################################################
+con = gzcon(url('http://www.systematicportfolio.com/sit.gz', 'rb'))
+source(con)
+close(con)
+
+#*****************************************************************
+# Load historical data
+#****************************************************************** 
+load.packages('quantmod','PerformanceAnalytics')   
+tickers = 'spy'
+
+data <- new.env()
+getSymbols(tickers, src = 'yahoo', from = '1950-01-01', env = data, auto.assign = T)
+for(i in ls(data)) data[[i]] = adjustOHLC(data[[i]], use.Adjusted=T)        
+bt.prep(data, align='remove.na', dates='1950::')
+
+#*****************************************************************
+# Code Strategies
+#****************************************************************** 
+prices = data$prices  
+n = len(tickers)  
+nperiods = nrow(prices)
+
+
+#*****************************************************************
+# Code Strategies
+#****************************************************************** 
+models = list()
+# Buy & Hold    
+data$weight[] = 1
+models$buy.hold = bt.run(data) 
+
+#Creating MA Indicators
+sma.long = bt.apply.matrix(prices, SMA, 200)
+sma.short = bt.apply.matrix(prices, SMA, 50)
+ema = bt.apply.matrix(prices, EMA, 200)
+
+
+#Simple moving average crossover (Prices>sma.long = long, otherwise cash), no short
+buy.signal = iif(cross.up(prices, sma.long), 1, NA)
+simpel = buy.signal
+data$weight[] = NA
+data$weight[] = iif(prices>sma.long,1,0)
+models$sma = bt.run.share(data, trade.summary=T) 
+
+
+#Golden Crossover (sma.long>sma.short = long, otherwise cash), no short
+buy.signal = iif(cross.up(sma.short, sma.long), 1, NA)
+golden = buy.signal
+data$weight[] = NA
+data$weight[] = iif(sma.long<sma.short,1,0)
+
+models$golden = bt.run.share(data, trade.summary=T)
+
+#exponentional moving average crossover (Prices>ema.long = long, otherwise cash), no short
+buy.signal = iif(cross.up(prices, ema), 1, NA)
+exp = buy.signal
+data$weight[] = NA
+data$weight[] = iif(prices>ema,1,0)
+
+models$ema = bt.run.share(data, trade.summary=T)
+
+#create reports
+#create extra plot lines
+plot.smalong <- function() {
+  plota.lines(sma.long, col='red')
+  
+}
+plot.golden <- function() {
+  plota.lines(sma.short, col='green')
+  plota.lines(sma.long, col='red')
+  
+  
+}
+plot.ema <- function() {
+  plota.lines(ema, col='red')
+  
+}
+plotbt.custom.report(models$golden,models$sma, models$ema, models$buy.hold) 
+plotbt.custom.report(models$golden, models$buy.hold) 
+plotbt.custom.report(models$sma, models$buy.hold) 
+plotbt.custom.report(models$ema, models$buy.hold) 
+
+layout(1:3)
+bt.stop.strategy.plot(data, models$sma,   layout=T, main = 'sma>price', extra.plot.fn = plot.smalong, plotX = F) 
+bt.stop.strategy.plot(data, models$golden,   layout=T, main = 'short sma > long sma', extra.plot.fn = plot.golden, plotX = F) 
+bt.stop.strategy.plot(data, models$ema,   layout=T, main = 'em>price', extra.plot.fn = plot.ema, plotX = F) 
+
+strategy.performance.snapshoot(models, T)
